@@ -1,0 +1,5 @@
+Budgeting App Database Design Package
+Version: Draft 0.1
+Created: 2026-10-17
+Status: Review artifacts only. No SQL migrations applied; no database modified.
+Files: README_DATABASE_ARTIFACTS.md, DATABASE_DESIGN.md, DATABASE_ERD.md, REQUIREMENTS_TO_TABLE_MATRIX.md, CATALOG_SPECIFICATION.md, FINANCIAL_BUSINESS_RULES.md, FLYWAY_PLAN.md, OPEN_DECISIONS.md
