@@ -1,5 +1,6 @@
 package com.budgetingapp.dto.request;
 
+import com.budgetingapp.entity.enums.AllocationInputMode;
 import com.budgetingapp.entity.enums.AllocationMode;
 import com.budgetingapp.entity.enums.IncomeType;
 import jakarta.validation.constraints.DecimalMax;
@@ -26,6 +27,8 @@ public class MonthlyBudgetSaveRequest {
     @NotNull(message = "allocationMode is required")
     private AllocationMode allocationMode;
 
+    private AllocationInputMode allocationInputMode;
+
     @NotNull(message = "investmentsEnabled is required")
     private Boolean investmentsEnabled;
 
@@ -43,6 +46,18 @@ public class MonthlyBudgetSaveRequest {
     @DecimalMax(value = "100.00", message = "investmentsPercentage must not exceed 100.00")
     @Digits(integer = 3, fraction = 2, message = "investmentsPercentage must have at most 2 decimal places")
     private BigDecimal investmentsPercentage;
+
+    @DecimalMin(value = "0.00", message = "essentialsAmount must not be negative")
+    @Digits(integer = 12, fraction = 2, message = "essentialsAmount must have at most 2 decimal places")
+    private BigDecimal essentialsAmount;
+
+    @DecimalMin(value = "0.00", message = "safetyAmount must not be negative")
+    @Digits(integer = 12, fraction = 2, message = "safetyAmount must have at most 2 decimal places")
+    private BigDecimal safetyAmount;
+
+    @DecimalMin(value = "0.00", message = "investmentsAmount must not be negative")
+    @Digits(integer = 12, fraction = 2, message = "investmentsAmount must have at most 2 decimal places")
+    private BigDecimal investmentsAmount;
 
     public IncomeType getIncomeType() {
         return incomeType;
@@ -76,6 +91,14 @@ public class MonthlyBudgetSaveRequest {
         this.allocationMode = allocationMode;
     }
 
+    public AllocationInputMode getAllocationInputMode() {
+        return allocationInputMode;
+    }
+
+    public void setAllocationInputMode(AllocationInputMode allocationInputMode) {
+        this.allocationInputMode = allocationInputMode;
+    }
+
     public Boolean getInvestmentsEnabled() {
         return investmentsEnabled;
     }
@@ -106,5 +129,29 @@ public class MonthlyBudgetSaveRequest {
 
     public void setInvestmentsPercentage(BigDecimal investmentsPercentage) {
         this.investmentsPercentage = investmentsPercentage;
+    }
+
+    public BigDecimal getEssentialsAmount() {
+        return essentialsAmount;
+    }
+
+    public void setEssentialsAmount(BigDecimal essentialsAmount) {
+        this.essentialsAmount = essentialsAmount;
+    }
+
+    public BigDecimal getSafetyAmount() {
+        return safetyAmount;
+    }
+
+    public void setSafetyAmount(BigDecimal safetyAmount) {
+        this.safetyAmount = safetyAmount;
+    }
+
+    public BigDecimal getInvestmentsAmount() {
+        return investmentsAmount;
+    }
+
+    public void setInvestmentsAmount(BigDecimal investmentsAmount) {
+        this.investmentsAmount = investmentsAmount;
     }
 }

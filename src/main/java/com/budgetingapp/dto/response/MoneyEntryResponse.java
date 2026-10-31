@@ -8,6 +8,7 @@ import com.fasterxml.jackson.annotation.JsonFormat;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 
 public class MoneyEntryResponse {
 
@@ -32,6 +33,10 @@ public class MoneyEntryResponse {
     private EntryStatus status;
 
     private String clientRequestId;
+
+    private Long sipPlanId;
+
+    private LocalDate sipInstallmentPeriod;
 
     @JsonFormat(shape = JsonFormat.Shape.STRING)
     private Instant voidedAtUtc;
@@ -122,6 +127,22 @@ public class MoneyEntryResponse {
 
     public void setClientRequestId(String clientRequestId) {
         this.clientRequestId = clientRequestId;
+    }
+
+    public Long getSipPlanId() {
+        return sipPlanId;
+    }
+
+    public void setSipPlanId(Long sipPlanId) {
+        this.sipPlanId = sipPlanId;
+    }
+
+    public LocalDate getSipInstallmentPeriod() {
+        return sipInstallmentPeriod;
+    }
+
+    public void setSipInstallmentPeriod(LocalDate sipInstallmentPeriod) {
+        this.sipInstallmentPeriod = sipInstallmentPeriod;
     }
 
     public Instant getVoidedAtUtc() {

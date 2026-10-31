@@ -17,12 +17,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CategoryCatalogTest {
 
     @Test
-    void fullCatalogContainsEighteenUniqueCodesWithHumanLabels() {
+    void fullCatalogContainsTwentyTwoUniqueCodesWithHumanLabels() {
         List<CategoryDefinition> catalog = CategoryCatalog.catalog(null, null);
 
-        assertEquals(18, catalog.size());
+        assertEquals(22, catalog.size());
         Set<String> codes = catalog.stream().map(CategoryDefinition::code).collect(Collectors.toSet());
-        assertEquals(18, codes.size());
+        assertEquals(22, codes.size());
         for (CategoryDefinition definition : catalog) {
             assertNotNull(definition.label());
             assertFalse(definition.label().isBlank());
@@ -71,13 +71,19 @@ class CategoryCatalogTest {
     }
 
     @Test
-    void investmentFilterReturnsFiveInvestmentCodes() {
+    void investmentFilterReturnsNineInvestmentCodes() {
         List<CategoryDefinition> catalog = CategoryCatalog.catalog(EntryType.INVESTMENT, BudgetBucket.INVESTMENTS);
 
-        assertEquals(Set.of("SIP", "FD", "STOCKS", "GOLD_SIP", "OTHER_INVESTMENT"), codesOf(catalog));
+        assertEquals(Set.of("SIP", "MUTUAL_FUND_LUMPSUM", "STOCKS", "FD", "RD", "PPF",
+                "GOLD", "GOLD_SIP", "OTHER_INVESTMENT"), codesOf(catalog));
         for (CategoryDefinition definition : catalog) {
             assertEquals(Set.of(BudgetBucket.INVESTMENTS), definition.buckets());
         }
+        Set<String> labels = catalog.stream().map(CategoryDefinition::label).collect(Collectors.toSet());
+        assertEquals(catalog.size(), labels.size(), "Every investment option must have a distinct label");
+        assertEquals("Gold SIP", find("GOLD_SIP").label());
+        assertTrue(codesOf(catalog).containsAll(List.of("SIP", "MUTUAL_FUND_LUMPSUM", "STOCKS",
+                "FD", "RD", "PPF", "GOLD", "OTHER_INVESTMENT")));
     }
 
     @Test

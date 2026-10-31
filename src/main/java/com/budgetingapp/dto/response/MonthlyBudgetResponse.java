@@ -1,5 +1,6 @@
 package com.budgetingapp.dto.response;
 
+import com.budgetingapp.entity.enums.AllocationInputMode;
 import com.budgetingapp.entity.enums.AllocationMode;
 import com.budgetingapp.entity.enums.IncomeType;
 import com.fasterxml.jackson.annotation.JsonFormat;
@@ -19,6 +20,8 @@ public class MonthlyBudgetResponse {
     private BigDecimal incomeAmount;
 
     private AllocationMode allocationMode;
+
+    private AllocationInputMode allocationInputMode;
 
     private Boolean investmentsEnabled;
 
@@ -82,6 +85,14 @@ public class MonthlyBudgetResponse {
 
     public void setAllocationMode(AllocationMode allocationMode) {
         this.allocationMode = allocationMode;
+    }
+
+    public AllocationInputMode getAllocationInputMode() {
+        return allocationInputMode;
+    }
+
+    public void setAllocationInputMode(AllocationInputMode allocationInputMode) {
+        this.allocationInputMode = allocationInputMode;
     }
 
     public Boolean getInvestmentsEnabled() {

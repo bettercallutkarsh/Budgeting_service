@@ -2,17 +2,21 @@ package com.budgetingapp.security;
 
 import com.budgetingapp.dto.response.ApiErrorResponse;
 import com.budgetingapp.exception.BusinessException;
+import com.budgetingapp.logging.RequestIds;
 import tools.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 
 import java.io.IOException;
 import java.time.Clock;
 import java.util.List;
-import java.util.UUID;
 
 public class SecurityErrorWriter {
+
+    private static final Logger log = LoggerFactory.getLogger(SecurityErrorWriter.class);
 
     private final ObjectMapper objectMapper;
     private final Clock clock;
@@ -23,8 +27,15 @@ public class SecurityErrorWriter {
     }
 
     public void writeError(HttpServletResponse response, HttpStatus status, String code, String message) {
+        if (status == HttpStatus.UNAUTHORIZED) {
+            log.info("security.authentication_required status={} errorCode={}", status.value(), code);
+        } else if (status == HttpStatus.FORBIDDEN) {
+            log.warn("security.access_denied status={} errorCode={}", status.value(), code);
+        } else if (status.is5xxServerError()) {
+            log.error("security.error status={} errorCode={}", status.value(), code);
+        }
         ApiErrorResponse body = new ApiErrorResponse(clock.instant(), status.value(), code, message,
-                List.of(), UUID.randomUUID().toString());
+                List.of(), RequestIds.currentOrNew());
         writeJson(response, status, body);
     }
 

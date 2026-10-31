@@ -4,6 +4,8 @@ import com.budgetingapp.dto.request.MonthlyBudgetSaveRequest;
 import com.budgetingapp.dto.response.MonthlyBudgetResponse;
 import com.budgetingapp.entity.MonthlyBudget;
 import com.budgetingapp.entity.User;
+import com.budgetingapp.entity.enums.AllocationInputMode;
+import com.budgetingapp.entity.enums.AllocationMode;
 import com.budgetingapp.entity.enums.EntryType;
 import com.budgetingapp.entity.enums.IncomeType;
 import com.budgetingapp.exception.BusinessException;
@@ -16,6 +18,8 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -29,6 +33,7 @@ import java.util.Optional;
 @Service
 public class MonthlyBudgetService {
 
+    private static final Logger log = LoggerFactory.getLogger(MonthlyBudgetService.class);
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Kolkata");
     private static final DateTimeFormatter MONTH_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM");
 
@@ -53,7 +58,7 @@ public class MonthlyBudgetService {
     @Transactional(readOnly = true)
     public Optional<MonthlyBudgetResponse> getBudget(Long userId, YearMonth month) {
         return budgetRepository.findByUser_UserIdAndBudgetMonth(userId, month.atDay(1))
-                .map(budget -> toResponse(budget, amountsFor(budget)));
+                .map(this::toResponse);
     }
 
     @Transactional
@@ -64,12 +69,53 @@ public class MonthlyBudgetService {
         }
         BigDecimal income = normalizeIncome(request.getIncomeAmount());
         String incomeSourceLabel = normalizeLabel(request.getIncomeType(), request.getIncomeSourceLabel());
-        boolean investmentsEnabled = request.getInvestmentsEnabled();
-        AllocationCalculator.Percentages percentages = allocationCalculator.resolve(
-                request.getAllocationMode(), investmentsEnabled,
-                request.getEssentialsPercentage(), request.getSafetyPercentage(), request.getInvestmentsPercentage());
-        if (!investmentsEnabled) {
-            assertNoPostedInvestments(userId, month);
+        boolean investmentsEnabled = Boolean.TRUE.equals(request.getInvestmentsEnabled());
+        AllocationInputMode inputMode = request.getAllocationInputMode() == null
+                ? AllocationInputMode.PERCENTAGE
+                : request.getAllocationInputMode();
+
+        AllocationCalculator.Percentages percentages;
+        AllocationCalculator.Amounts amounts;
+
+        if (inputMode == AllocationInputMode.AMOUNT) {
+            if (!investmentsEnabled && request.getAllocationMode() != AllocationMode.MANUAL) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "INVESTMENTS_OFF_REQUIRES_MANUAL",
+                        "Choose Manual allocation when Investments are disabled.");
+            }
+            if (investmentsEnabled) {
+                amounts = allocationCalculator.calculateAmounts(income,
+                        request.getEssentialsAmount(), request.getSafetyAmount(), request.getInvestmentsAmount());
+            } else {
+                if (request.getInvestmentsAmount() != null
+                        && request.getInvestmentsAmount().compareTo(BigDecimal.ZERO) != 0) {
+                    throw new BusinessException(HttpStatus.BAD_REQUEST, "INVESTMENTS_MUST_BE_ZERO",
+                            "investmentsAmount must be 0.00 when Investments are disabled.");
+                }
+                if (request.getEssentialsAmount() == null || request.getSafetyAmount() == null) {
+                    throw new BusinessException(HttpStatus.BAD_REQUEST, "ALLOCATION_AMOUNT_INVALID",
+                            "essentialsAmount and safetyAmount are required when Investments are disabled.");
+                }
+                amounts = allocationCalculator.calculateAmounts(income,
+                        request.getEssentialsAmount(), request.getSafetyAmount(), BigDecimal.ZERO.setScale(2));
+                if (amounts.investments().compareTo(BigDecimal.ZERO) != 0
+                        || amounts.essentials().add(amounts.safety()).compareTo(income) != 0) {
+                    throw new BusinessException(HttpStatus.BAD_REQUEST, "ALLOCATION_AMOUNT_INVALID",
+                            "Essentials and Safety amounts must total the income amount when Investments are disabled.");
+                }
+            }
+            percentages = allocationCalculator.percentagesFromAmounts(income,
+                    amounts.essentials(), amounts.safety(), amounts.investments());
+            if (!investmentsEnabled) {
+                assertNoPostedInvestments(userId, month);
+            }
+        } else {
+            percentages = allocationCalculator.resolve(
+                    request.getAllocationMode(), investmentsEnabled,
+                    request.getEssentialsPercentage(), request.getSafetyPercentage(), request.getInvestmentsPercentage());
+            amounts = allocationCalculator.calculate(income, percentages, investmentsEnabled);
+            if (!investmentsEnabled) {
+                assertNoPostedInvestments(userId, month);
+            }
         }
 
         MonthlyBudget budget = budgetRepository
@@ -78,11 +124,15 @@ public class MonthlyBudgetService {
         budget.setIncomeType(request.getIncomeType());
         budget.setIncomeSourceLabel(incomeSourceLabel);
         budget.setIncomeAmount(income);
+        budget.setAllocationInputMode(inputMode);
         budget.setAllocationMode(request.getAllocationMode());
         budget.setInvestmentsEnabled(investmentsEnabled);
         budget.setEssentialsPercentage(percentages.essentials());
         budget.setSafetyPercentage(percentages.safety());
         budget.setInvestmentsPercentage(percentages.investments());
+        budget.setEssentialsAmount(amounts.essentials());
+        budget.setSafetyAmount(amounts.safety());
+        budget.setInvestmentsAmount(amounts.investments());
 
         MonthlyBudget saved;
         try {
@@ -95,7 +145,9 @@ public class MonthlyBudgetService {
         if (saved.getMonthlyBudgetId() != null) {
             fresh = budgetRepository.findById(saved.getMonthlyBudgetId()).orElse(saved);
         }
-        return toResponse(fresh, amountsFor(fresh));
+        log.info("budget.saved month={} inputMode={} allocationMode={} investmentsEnabled={}",
+                month.format(MONTH_FORMAT), inputMode, budget.getAllocationMode(), investmentsEnabled);
+        return toResponse(fresh);
     }
 
     private void requireRequestShape(MonthlyBudgetSaveRequest request) {
@@ -158,26 +210,41 @@ public class MonthlyBudgetService {
         return budget;
     }
 
-    private AllocationCalculator.Amounts amountsFor(MonthlyBudget budget) {
-        AllocationCalculator.Percentages percentages = new AllocationCalculator.Percentages(
-                budget.getEssentialsPercentage(), budget.getSafetyPercentage(), budget.getInvestmentsPercentage());
-        return allocationCalculator.calculate(budget.getIncomeAmount(), percentages, budget.getInvestmentsEnabled());
-    }
-
-    private MonthlyBudgetResponse toResponse(MonthlyBudget budget, AllocationCalculator.Amounts amounts) {
+    private MonthlyBudgetResponse toResponse(MonthlyBudget budget) {
         MonthlyBudgetResponse response = new MonthlyBudgetResponse();
         response.setMonth(budget.getBudgetMonth().format(MONTH_FORMAT));
         response.setIncomeType(budget.getIncomeType());
         response.setIncomeSourceLabel(budget.getIncomeSourceLabel());
         response.setIncomeAmount(budget.getIncomeAmount().setScale(2));
         response.setAllocationMode(budget.getAllocationMode());
+        response.setAllocationInputMode(budget.getAllocationInputMode() == null
+                ? AllocationInputMode.PERCENTAGE
+                : budget.getAllocationInputMode());
         response.setInvestmentsEnabled(budget.getInvestmentsEnabled());
         response.setEssentialsPercentage(budget.getEssentialsPercentage().setScale(2));
         response.setSafetyPercentage(budget.getSafetyPercentage().setScale(2));
         response.setInvestmentsPercentage(budget.getInvestmentsPercentage().setScale(2));
-        response.setEssentialsAmount(amounts.essentials());
-        response.setSafetyAmount(amounts.safety());
-        response.setInvestmentsAmount(amounts.investments());
+        BigDecimal e = budget.getEssentialsAmount() == null
+                ? allocationCalculator.calculate(budget.getIncomeAmount(),
+                new AllocationCalculator.Percentages(budget.getEssentialsPercentage(),
+                        budget.getSafetyPercentage(), budget.getInvestmentsPercentage()),
+                budget.getInvestmentsEnabled()).essentials()
+                : budget.getEssentialsAmount();
+        BigDecimal s = budget.getSafetyAmount() == null
+                ? allocationCalculator.calculate(budget.getIncomeAmount(),
+                new AllocationCalculator.Percentages(budget.getEssentialsPercentage(),
+                        budget.getSafetyPercentage(), budget.getInvestmentsPercentage()),
+                budget.getInvestmentsEnabled()).safety()
+                : budget.getSafetyAmount();
+        BigDecimal i = budget.getInvestmentsAmount() == null
+                ? allocationCalculator.calculate(budget.getIncomeAmount(),
+                new AllocationCalculator.Percentages(budget.getEssentialsPercentage(),
+                        budget.getSafetyPercentage(), budget.getInvestmentsPercentage()),
+                budget.getInvestmentsEnabled()).investments()
+                : budget.getInvestmentsAmount();
+        response.setEssentialsAmount(e.setScale(2));
+        response.setSafetyAmount(s.setScale(2));
+        response.setInvestmentsAmount(i.setScale(2));
         response.setCreatedAtUtc(budget.getCreatedAtUtc());
         response.setUpdatedAtUtc(budget.getUpdatedAtUtc());
         return response;

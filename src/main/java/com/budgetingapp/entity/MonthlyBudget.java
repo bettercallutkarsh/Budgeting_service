@@ -1,5 +1,6 @@
 package com.budgetingapp.entity;
 
+import com.budgetingapp.entity.enums.AllocationInputMode;
 import com.budgetingapp.entity.enums.AllocationMode;
 import com.budgetingapp.entity.enums.IncomeType;
 import jakarta.persistence.*;
@@ -46,6 +47,11 @@ public class MonthlyBudget {
     private AllocationMode allocationMode;
 
     @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(name = "allocation_input_mode", nullable = false, length = 20)
+    private AllocationInputMode allocationInputMode = AllocationInputMode.PERCENTAGE;
+
+    @NotNull
     @Column(name = "investments_enabled", nullable = false)
     private Boolean investmentsEnabled = Boolean.TRUE;
 
@@ -60,6 +66,18 @@ public class MonthlyBudget {
     @NotNull
     @Column(name = "investments_percentage", nullable = false, precision = 5, scale = 2)
     private BigDecimal investmentsPercentage;
+
+    @NotNull
+    @Column(name = "essentials_amount", nullable = false, precision = 14, scale = 2)
+    private BigDecimal essentialsAmount;
+
+    @NotNull
+    @Column(name = "safety_amount", nullable = false, precision = 14, scale = 2)
+    private BigDecimal safetyAmount;
+
+    @NotNull
+    @Column(name = "investments_amount", nullable = false, precision = 14, scale = 2)
+    private BigDecimal investmentsAmount;
 
     @Column(name = "created_at_utc", nullable = false, insertable = false, updatable = false)
     private Instant createdAtUtc;
@@ -126,6 +144,14 @@ public class MonthlyBudget {
         this.allocationMode = allocationMode;
     }
 
+    public AllocationInputMode getAllocationInputMode() {
+        return allocationInputMode;
+    }
+
+    public void setAllocationInputMode(AllocationInputMode allocationInputMode) {
+        this.allocationInputMode = allocationInputMode;
+    }
+
     public Boolean getInvestmentsEnabled() {
         return investmentsEnabled;
     }
@@ -156,6 +182,30 @@ public class MonthlyBudget {
 
     public void setInvestmentsPercentage(BigDecimal investmentsPercentage) {
         this.investmentsPercentage = investmentsPercentage;
+    }
+
+    public BigDecimal getEssentialsAmount() {
+        return essentialsAmount;
+    }
+
+    public void setEssentialsAmount(BigDecimal essentialsAmount) {
+        this.essentialsAmount = essentialsAmount;
+    }
+
+    public BigDecimal getSafetyAmount() {
+        return safetyAmount;
+    }
+
+    public void setSafetyAmount(BigDecimal safetyAmount) {
+        this.safetyAmount = safetyAmount;
+    }
+
+    public BigDecimal getInvestmentsAmount() {
+        return investmentsAmount;
+    }
+
+    public void setInvestmentsAmount(BigDecimal investmentsAmount) {
+        this.investmentsAmount = investmentsAmount;
     }
 
     public Instant getCreatedAtUtc() {

@@ -149,6 +149,72 @@ public class AllocationCalculator {
         }
     }
 
+    public Amounts calculateAmounts(BigDecimal income, BigDecimal essentialsAmount,
+                                    BigDecimal safetyAmount, BigDecimal investmentsAmount) {
+        if (income == null) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "REQUEST_INVALID", "incomeAmount is required.");
+        }
+        BigDecimal normalizedIncome = income.setScale(2, RoundingMode.HALF_UP);
+        if (essentialsAmount == null || safetyAmount == null || investmentsAmount == null) {
+            throw new AllocationValidationException("ALLOCATION_AMOUNT_INVALID",
+                    "essentialsAmount, safetyAmount and investmentsAmount are required for amount mode.",
+                    List.of(new FieldViolation("essentialsAmount", "REQUIRED",
+                                    "essentialsAmount, safetyAmount and investmentsAmount are required for amount mode."),
+                            new FieldViolation("safetyAmount", "REQUIRED",
+                                    "essentialsAmount, safetyAmount and investmentsAmount are required for amount mode."),
+                            new FieldViolation("investmentsAmount", "REQUIRED",
+                                    "essentialsAmount, safetyAmount and investmentsAmount are required for amount mode.")));
+        }
+        List<FieldViolation> violations = new ArrayList<>();
+        validateAmount("essentialsAmount", essentialsAmount, violations);
+        validateAmount("safetyAmount", safetyAmount, violations);
+        validateAmount("investmentsAmount", investmentsAmount, violations);
+        if (!violations.isEmpty()) {
+            throw new AllocationValidationException("ALLOCATION_AMOUNT_INVALID",
+                    "Each amount must be non-negative and have at most 2 decimal places.", violations);
+        }
+        BigDecimal e = essentialsAmount.setScale(2, RoundingMode.HALF_UP);
+        BigDecimal s = safetyAmount.setScale(2, RoundingMode.HALF_UP);
+        BigDecimal i = investmentsAmount.setScale(2, RoundingMode.HALF_UP);
+        BigDecimal sum = e.add(s).add(i);
+        if (sum.compareTo(normalizedIncome) != 0) {
+            String message = "Bucket amounts must total exactly the income amount.";
+            throw new AllocationValidationException("ALLOCATION_AMOUNT_TOTAL_MISMATCH", message,
+                    List.of(new FieldViolation("essentialsAmount", "TOTAL_MISMATCH", message),
+                            new FieldViolation("safetyAmount", "TOTAL_MISMATCH", message),
+                            new FieldViolation("investmentsAmount", "TOTAL_MISMATCH", message)));
+        }
+        return new Amounts(e, s, i);
+    }
+
+    public Percentages percentagesFromAmounts(BigDecimal income, BigDecimal essentialsAmount,
+                                               BigDecimal safetyAmount, BigDecimal investmentsAmount) {
+        if (income == null || income.compareTo(BigDecimal.ZERO) == 0) {
+            return new Percentages(BigDecimal.ZERO.setScale(2), BigDecimal.ZERO.setScale(2),
+                    BigDecimal.ZERO.setScale(2));
+        }
+        BigDecimal base = income.setScale(2, RoundingMode.HALF_UP);
+        BigDecimal e = essentialsAmount.setScale(2, RoundingMode.HALF_UP);
+        BigDecimal s = safetyAmount.setScale(2, RoundingMode.HALF_UP);
+        BigDecimal i = investmentsAmount.setScale(2, RoundingMode.HALF_UP);
+        BigDecimal ep = e.multiply(HUNDRED).divide(base, 2, RoundingMode.HALF_UP);
+        BigDecimal sp = s.multiply(HUNDRED).divide(base, 2, RoundingMode.HALF_UP);
+        BigDecimal ip = i.multiply(HUNDRED).divide(base, 2, RoundingMode.HALF_UP);
+        return new Percentages(ep, sp, ip);
+    }
+
+    private void validateAmount(String field, BigDecimal value, List<FieldViolation> violations) {
+        if (value.scale() > 2) {
+            violations.add(new FieldViolation(field, "MAX_TWO_DECIMALS",
+                    field + " must have at most 2 decimal places."));
+            return;
+        }
+        if (value.compareTo(MIN_PERCENTAGE) < 0) {
+            violations.add(new FieldViolation(field, "OUT_OF_RANGE",
+                    field + " must not be negative."));
+        }
+    }
+
     private BigDecimal bucketAmount(BigDecimal income, BigDecimal percentage, RoundingMode mode) {
         return income.multiply(percentage).divide(HUNDRED, 2, mode);
     }
