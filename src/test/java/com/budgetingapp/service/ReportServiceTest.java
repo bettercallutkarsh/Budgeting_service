@@ -5,6 +5,7 @@ import com.budgetingapp.dto.response.MonthlySummaryResponse;
 import com.budgetingapp.dto.response.ReportPeriodResponse;
 import com.budgetingapp.dto.response.ReportSummaryResponse;
 import com.budgetingapp.entity.MonthlyBudget;
+import com.budgetingapp.entity.enums.AllocationInputMode;
 import com.budgetingapp.entity.enums.AllocationMode;
 import com.budgetingapp.exception.BusinessException;
 import com.budgetingapp.repository.MoneyEntryRepository;
@@ -116,6 +117,25 @@ class ReportServiceTest {
         assertEquals(new BigDecimal("2300.00"), response.getSafetyRemaining());
         assertEquals(new BigDecimal("9500.00"), response.getInvestmentsRemaining());
         assertNotNull(response.getExplanation());
+    }
+
+    @Test
+    void monthlySummaryUsesPersistedAmountModeAmountsInsteadOfRecalculatingFromPercentages() {
+        when(moneyEntryRepository.sumPostedTotalsByIstDay(USER_ID, OCT_START_UTC, NOV_START_UTC))
+                .thenReturn(List.of(row("2026-10-31", "INVESTMENT", "INVESTMENTS", "2000.00")));
+        when(budgetRepository.findByUser_UserIdAndBudgetMonth(USER_ID, LocalDate.of(2026, 10, 1)))
+                .thenReturn(Optional.of(amountModeBudget()));
+        stubCardSummary("0.00");
+
+        MonthlySummaryResponse response = service.monthlySummary(USER_ID, YearMonth.of(2026, 10));
+
+        assertEquals(MonthlySummaryResponse.MonthStatus.WITHIN_ALLOCATION, response.getStatus());
+        assertEquals(new BigDecimal("40800.00"), response.getIncomeAmount());
+        assertEquals(new BigDecimal("34720.00"), response.getEssentialsAmount());
+        assertEquals(new BigDecimal("4080.00"), response.getSafetyAmount());
+        assertEquals(new BigDecimal("2000.00"), response.getInvestmentsAmount());
+        assertEquals(new BigDecimal("2000.00"), response.getInvestmentsUsed());
+        assertEquals(new BigDecimal("0.00"), response.getInvestmentsRemaining());
     }
 
     @Test
@@ -361,15 +381,42 @@ class ReportServiceTest {
     }
 
     private MonthlyBudget budget(String month, String income) {
+        BigDecimal incomeAmount = new BigDecimal(income);
+        AllocationCalculator.Amounts amounts = new AllocationCalculator().calculate(
+                incomeAmount,
+                new AllocationCalculator.Percentages(
+                        new BigDecimal("55.00"), new BigDecimal("10.00"), new BigDecimal("35.00")),
+                Boolean.TRUE);
         MonthlyBudget budget = new MonthlyBudget();
         budget.setMonthlyBudgetId(1L);
         budget.setBudgetMonth(LocalDate.parse(month + "-01"));
-        budget.setIncomeAmount(new BigDecimal(income));
+        budget.setIncomeAmount(incomeAmount);
         budget.setAllocationMode(AllocationMode.BALANCED);
+        budget.setAllocationInputMode(AllocationInputMode.PERCENTAGE);
         budget.setInvestmentsEnabled(Boolean.TRUE);
         budget.setEssentialsPercentage(new BigDecimal("55.00"));
         budget.setSafetyPercentage(new BigDecimal("10.00"));
         budget.setInvestmentsPercentage(new BigDecimal("35.00"));
+        budget.setEssentialsAmount(amounts.essentials());
+        budget.setSafetyAmount(amounts.safety());
+        budget.setInvestmentsAmount(amounts.investments());
+        return budget;
+    }
+
+    private MonthlyBudget amountModeBudget() {
+        MonthlyBudget budget = new MonthlyBudget();
+        budget.setMonthlyBudgetId(2L);
+        budget.setBudgetMonth(LocalDate.of(2026, 10, 1));
+        budget.setIncomeAmount(new BigDecimal("40800.00"));
+        budget.setAllocationMode(AllocationMode.BALANCED);
+        budget.setAllocationInputMode(AllocationInputMode.AMOUNT);
+        budget.setInvestmentsEnabled(Boolean.TRUE);
+        budget.setEssentialsPercentage(new BigDecimal("85.10"));
+        budget.setSafetyPercentage(new BigDecimal("10.00"));
+        budget.setInvestmentsPercentage(new BigDecimal("4.90"));
+        budget.setEssentialsAmount(new BigDecimal("34720.00"));
+        budget.setSafetyAmount(new BigDecimal("4080.00"));
+        budget.setInvestmentsAmount(new BigDecimal("2000.00"));
         return budget;
     }
 

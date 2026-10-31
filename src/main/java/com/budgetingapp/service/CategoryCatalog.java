@@ -12,6 +12,7 @@ import java.util.Set;
 
 public final class CategoryCatalog {
 
+    public static final String SIP = "SIP";
     public static final String CREDIT_CARD_BILL_PAYMENT = "CREDIT_CARD_BILL_PAYMENT";
 
     private static final Set<String> EXPENSE_ESSENTIALS = Set.of(
@@ -23,7 +24,8 @@ public final class CategoryCatalog {
     private static final Set<String> SAFETY_SAVING_SAFETY = Set.of("EMERGENCY_FUND", "SAFETY_SAVING");
 
     private static final Set<String> INVESTMENT_INVESTMENTS = Set.of(
-            "SIP", "FD", "STOCKS", "GOLD_SIP", "OTHER_INVESTMENT");
+            "SIP", "MUTUAL_FUND_LUMPSUM", "STOCKS", "FD", "RD", "PPF",
+            "GOLD", "GOLD_SIP", "OTHER_INVESTMENT");
 
     private static final Map<String, String> LABELS = Map.ofEntries(
             Map.entry("GROCERIES", "Groceries"),
@@ -39,8 +41,12 @@ public final class CategoryCatalog {
             Map.entry("EMERGENCY_FUND", "Emergency fund"),
             Map.entry("SAFETY_SAVING", "Safety saving"),
             Map.entry("SIP", "SIP"),
+            Map.entry("MUTUAL_FUND_LUMPSUM", "Mutual fund (lumpsum)"),
             Map.entry("FD", "FD"),
+            Map.entry("RD", "RD"),
+            Map.entry("PPF", "PPF"),
             Map.entry("STOCKS", "Stocks"),
+            Map.entry("GOLD", "Gold"),
             Map.entry("GOLD_SIP", "Gold SIP"),
             Map.entry("OTHER_INVESTMENT", "Other investment"),
             Map.entry(CREDIT_CARD_BILL_PAYMENT, "Pay credit-card bill"));

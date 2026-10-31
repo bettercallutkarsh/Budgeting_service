@@ -4,6 +4,7 @@ import com.budgetingapp.dto.request.MonthlyBudgetSaveRequest;
 import com.budgetingapp.dto.response.MonthlyBudgetResponse;
 import com.budgetingapp.entity.MonthlyBudget;
 import com.budgetingapp.entity.User;
+import com.budgetingapp.entity.enums.AllocationInputMode;
 import com.budgetingapp.entity.enums.AllocationMode;
 import com.budgetingapp.entity.enums.EntryType;
 import com.budgetingapp.entity.enums.IncomeType;
@@ -17,6 +18,8 @@ import com.budgetingapp.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -415,6 +418,159 @@ class MonthlyBudgetServiceTest {
         assertTrue(result.isEmpty());
         verify(budgetRepository).findByUser_UserIdAndBudgetMonth(99L, OCTOBER);
         verify(budgetRepository, never()).findByUser_UserIdAndBudgetMonth(eq(USER_ID), any(LocalDate.class));
+    }
+
+    @Test
+    void amountModeWithManualAllocationStoresAmountsAndDerivedPercentages() {
+        stubNewBudgetSave(31L);
+        MonthlyBudgetSaveRequest request = amountRequest("24500.00", AllocationMode.MANUAL,
+                "14000.00", "3000.00", "7500.00");
+
+        MonthlyBudgetResponse response = service.saveBudget(USER_ID, OCTOBER_MONTH, request);
+
+        assertEquals(AllocationMode.MANUAL, response.getAllocationMode());
+        assertEquals(AllocationInputMode.AMOUNT, response.getAllocationInputMode());
+        assertEquals(0, new BigDecimal("14000.00").compareTo(response.getEssentialsAmount()));
+        assertEquals(0, new BigDecimal("3000.00").compareTo(response.getSafetyAmount()));
+        assertEquals(0, new BigDecimal("7500.00").compareTo(response.getInvestmentsAmount()));
+        assertEquals(0, new BigDecimal("57.14").compareTo(response.getEssentialsPercentage()));
+        assertEquals(0, new BigDecimal("12.24").compareTo(response.getSafetyPercentage()));
+        assertEquals(0, new BigDecimal("30.61").compareTo(response.getInvestmentsPercentage()));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = AllocationMode.class, names = {"CONSERVATIVE", "BALANCED", "AGGRESSIVE"})
+    void amountModeSupportsEveryPresetTemplate(AllocationMode mode) {
+        stubNewBudgetSave(32L);
+        String[] amounts = switch (mode) {
+            case CONSERVATIVE -> new String[]{"14700.00", "2450.00", "7350.00"};
+            case BALANCED -> new String[]{"13475.00", "2450.00", "8575.00"};
+            case AGGRESSIVE -> new String[]{"12250.00", "2450.00", "9800.00"};
+            case MANUAL -> throw new IllegalStateException();
+        };
+
+        MonthlyBudgetResponse response = service.saveBudget(USER_ID, OCTOBER_MONTH,
+                amountRequest("24500.00", mode, amounts[0], amounts[1], amounts[2]));
+
+        assertEquals(mode, response.getAllocationMode());
+        assertEquals(AllocationInputMode.AMOUNT, response.getAllocationInputMode());
+        assertEquals(0, new BigDecimal(amounts[0]).compareTo(response.getEssentialsAmount()));
+        assertEquals(0, new BigDecimal(amounts[1]).compareTo(response.getSafetyAmount()));
+        assertEquals(0, new BigDecimal(amounts[2]).compareTo(response.getInvestmentsAmount()));
+    }
+
+    @Test
+    void amountModeCustomizedAmountsRetainBalancedIdentity() {
+        stubNewBudgetSave(33L);
+        MonthlyBudgetSaveRequest request = amountRequest("24500.00", AllocationMode.BALANCED,
+                "14000.00", "3000.00", "7500.00");
+
+        MonthlyBudgetResponse response = service.saveBudget(USER_ID, OCTOBER_MONTH, request);
+
+        assertEquals(AllocationMode.BALANCED, response.getAllocationMode());
+        assertEquals(AllocationInputMode.AMOUNT, response.getAllocationInputMode());
+        assertEquals(0, new BigDecimal("14000.00").compareTo(response.getEssentialsAmount()));
+        assertEquals(0, new BigDecimal("3000.00").compareTo(response.getSafetyAmount()));
+        assertEquals(0, new BigDecimal("7500.00").compareTo(response.getInvestmentsAmount()));
+        assertEquals(0, new BigDecimal("24500.00").compareTo(response.getIncomeAmount()));
+    }
+
+    @Test
+    void amountModeRejectsOnePaisaTotalMismatch() {
+        MonthlyBudgetSaveRequest request = amountRequest("24500.00", AllocationMode.BALANCED,
+                "14000.00", "3000.00", "7499.99");
+
+        BusinessException ex = assertThrows(AllocationValidationException.class, () ->
+                service.saveBudget(USER_ID, OCTOBER_MONTH, request));
+
+        assertEquals("ALLOCATION_AMOUNT_TOTAL_MISMATCH", ex.getCode());
+        assertEquals(HttpStatus.BAD_REQUEST, ex.getStatus());
+        verifyNoInteractions(budgetRepository, moneyEntryRepository, userRepository);
+    }
+
+    @Test
+    void amountModeWithInvestmentsOffRequiresManualMode() {
+        MonthlyBudgetSaveRequest request = amountRequest("20000.00", AllocationMode.BALANCED,
+                "14000.00", "6000.00", "0.00");
+        request.setInvestmentsEnabled(Boolean.FALSE);
+
+        BusinessException ex = assertThrows(BusinessException.class, () ->
+                service.saveBudget(USER_ID, OCTOBER_MONTH, request));
+
+        assertEquals("INVESTMENTS_OFF_REQUIRES_MANUAL", ex.getCode());
+        verifyNoInteractions(budgetRepository, moneyEntryRepository, userRepository);
+    }
+
+    @Test
+    void amountModeWithInvestmentsOffAcceptsManualSplit() {
+        when(moneyEntryRepository
+                .existsByUser_UserIdAndEntryTypeAndEntryAtUtcGreaterThanEqualAndEntryAtUtcLessThan(
+                        eq(USER_ID), eq(EntryType.INVESTMENT), any(Instant.class), any(Instant.class)))
+                .thenReturn(false);
+        stubNewBudgetSave(34L);
+        MonthlyBudgetSaveRequest request = amountRequest("20000.00", AllocationMode.MANUAL,
+                "14000.00", "6000.00", "0.00");
+        request.setInvestmentsEnabled(Boolean.FALSE);
+
+        MonthlyBudgetResponse response = service.saveBudget(USER_ID, OCTOBER_MONTH, request);
+
+        assertEquals(AllocationMode.MANUAL, response.getAllocationMode());
+        assertEquals(AllocationInputMode.AMOUNT, response.getAllocationInputMode());
+        assertEquals(0, new BigDecimal("14000.00").compareTo(response.getEssentialsAmount()));
+        assertEquals(0, new BigDecimal("6000.00").compareTo(response.getSafetyAmount()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(response.getInvestmentsAmount()));
+    }
+
+    @Test
+    void legacyRequestWithoutInputModeDefaultsToPercentage() {
+        stubNewBudgetSave(35L);
+        MonthlyBudgetSaveRequest request = balancedRequest();
+
+        MonthlyBudgetResponse response = service.saveBudget(USER_ID, OCTOBER_MONTH, request);
+
+        assertEquals(AllocationInputMode.PERCENTAGE, response.getAllocationInputMode());
+        assertEquals(AllocationMode.BALANCED, response.getAllocationMode());
+    }
+
+    @Test
+    void zeroIncomeAmountModeDerivesZeroPercentages() {
+        stubNewBudgetSave(36L);
+        MonthlyBudgetSaveRequest request = amountRequest("0.00", AllocationMode.MANUAL,
+                "0.00", "0.00", "0.00");
+
+        MonthlyBudgetResponse response = service.saveBudget(USER_ID, OCTOBER_MONTH, request);
+
+        assertEquals(0, BigDecimal.ZERO.compareTo(response.getEssentialsPercentage()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(response.getSafetyPercentage()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(response.getInvestmentsPercentage()));
+        assertEquals(AllocationInputMode.AMOUNT, response.getAllocationInputMode());
+    }
+
+    private void stubNewBudgetSave(long id) {
+        when(budgetRepository.findByUser_UserIdAndBudgetMonth(USER_ID, OCTOBER)).thenReturn(Optional.empty());
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(user(USER_ID)));
+        AtomicReference<MonthlyBudget> savedRef = new AtomicReference<>();
+        when(budgetRepository.saveAndFlush(any(MonthlyBudget.class))).thenAnswer(invocation -> {
+            MonthlyBudget budget = invocation.getArgument(0);
+            budget.setMonthlyBudgetId(id);
+            savedRef.set(budget);
+            return budget;
+        });
+        when(budgetRepository.findById(id)).thenAnswer(invocation -> Optional.ofNullable(savedRef.get()));
+    }
+
+    private MonthlyBudgetSaveRequest amountRequest(String income, AllocationMode mode,
+                                                   String essentials, String safety, String investments) {
+        MonthlyBudgetSaveRequest request = new MonthlyBudgetSaveRequest();
+        request.setIncomeType(IncomeType.SALARY);
+        request.setIncomeAmount(new BigDecimal(income));
+        request.setAllocationMode(mode);
+        request.setAllocationInputMode(AllocationInputMode.AMOUNT);
+        request.setInvestmentsEnabled(Boolean.TRUE);
+        request.setEssentialsAmount(new BigDecimal(essentials));
+        request.setSafetyAmount(new BigDecimal(safety));
+        request.setInvestmentsAmount(new BigDecimal(investments));
+        return request;
     }
 
     private MonthlyBudgetSaveRequest balancedRequest() {

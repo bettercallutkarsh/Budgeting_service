@@ -5,9 +5,9 @@
 **Target stack:** Java 21, Spring Boot 4.x, Spring Security, Spring Data JPA, Jakarta Validation, MySQL 8.x, Flyway  
 **Database schema:** `budget_db`  
 **Timezone/business calendar:** `Asia/Kolkata` (IST, UTC+05:30)  
-**Scope:** Individual user, monthly income, three-bucket budget, money-entry history, summary reports and manually tracked aggregate credit-card outstanding.
+**Scope:** Individual user, monthly income, three-bucket budget, money-entry history, SIP investment plans, summary reports and manually tracked aggregate credit-card outstanding.
 
-> This document supersedes the earlier broad 33-table draft for V1. It deliberately keeps the business schema at three tables: `users`, `monthly_budgets`, and `money_entries`. Flyway/system tables or a future framework session table are technical infrastructure, not extra business-domain tables. Do not add domain tables unless an agreed feature cannot be represented cleanly by these three tables.
+> This document supersedes the earlier broad 33-table draft for V1. The approved business schema is `users`, `monthly_budgets`, `money_entries`, and `sip_plans`. SIP plans were added as a deliberate, narrowly scoped exception for recurring investment tracking. Flyway/system tables or a future framework session table are technical infrastructure, not extra business-domain tables. Do not add further domain tables unless an agreed feature cannot be represented cleanly by the existing tables.
 
 ## 1. Glossary and plain-language meanings
 
@@ -24,7 +24,7 @@
 1. Normal users must be able to understand the terms and complete common tasks quickly.
 2. Backend is the financial source of truth; Angular may preview values but must not be authoritative for saving calculations.
 3. Store actual user-entered events once. Derive summaries instead of storing duplicate totals.
-4. Use three business tables for V1. No household, category-master, account, bill, goal, recurrence, investment-valuation, tax, or AI tables in V1.
+4. Use the four approved business tables for V1. No household, category-master, account, bill, goal, generic-recurrence, investment-valuation, tax, or AI tables in V1. `sip_plans` is the only approved recurrence representation.
 5. Indian Rupee only. Multi-currency and FX are out of scope.
 6. Historical data must not silently change when the user chooses a different preset in a later month.
 7. Never equate investment contributions with investment market value or profit.
@@ -39,6 +39,7 @@
 - Conservative, Balanced, Aggressive and Manual allocation.
 - Investment toggle with the approved Option C behavior.
 - Add, list, filter and void money entries.
+- Create, update, stop and list SIP investment plans; list scheduled installments and mark them paid.
 - Date/time-aware history in IST.
 - Monthly bucket progress and daily totals.
 - Lifetime recorded income, lifetime consumption expenditure, Safety savings and investment-contribution summaries.
@@ -48,7 +49,7 @@
 
 ## 4. Explicitly out of scope for V1
 
-No household sharing, multiple earners per month, salary receipts ledger, bank integration, account balances, individual per-card accounts/statements/due dates, credit limits, transaction imports, recurring payments, bill calendar/reminders, user-defined category management, goals, tax, EPF/PPF/NPS, net-worth/market valuation, crypto, AI financial assistant, or safe-to-spend prediction. These are future candidates, not hidden requirements for the three-table MVP.
+No household sharing, multiple earners per month, salary receipts ledger, bank integration, account balances, individual per-card accounts/statements/due dates, credit limits, transaction imports, generic recurring payments, bill calendar/reminders, user-defined category management, goals, tax, EPF/PPF/NPS, net-worth/market valuation, crypto, AI financial assistant, or safe-to-spend prediction. SIP plans are the only approved recurring-investment exception. These are future candidates, not hidden requirements for the MVP.
 
 ## 5. User/profile requirements
 
@@ -92,11 +93,13 @@ One row per user per calendar month. `budget_month` is the first day of the mont
 - `income_source_label` nullable.
 - `income_amount` `DECIMAL(14,2)`, minimum 0.00.
 - `allocation_mode` (`CONSERVATIVE`, `BALANCED`, `AGGRESSIVE`, `MANUAL`).
+- `allocation_input_mode` (`PERCENTAGE` or `AMOUNT`); defaults to `PERCENTAGE` for legacy rows.
 - `investments_enabled` boolean.
 - `essentials_percentage`, `safety_percentage`, `investments_percentage` as `DECIMAL(5,2)`.
+- `essentials_amount`, `safety_amount`, `investments_amount` as `DECIMAL(14,2)`.
 - UTC created/updated timestamps.
 
-Constraints: unique `(user_id, budget_month)`; month is the first day; amount is non-negative; every percentage is 0.00–100.00; allocation rules below must hold.
+Constraints: unique `(user_id, budget_month)`; month is the first day; amount is non-negative; every percentage is 0.00–100.00; bucket amounts are non-negative; allocation rules below must hold. In every mode, the three saved bucket amounts must total `income_amount` exactly. In percentage mode, the three saved percentages must total `100.00` exactly when Investments are enabled.
 
 ### 6.2 Presets
 
@@ -108,10 +111,19 @@ Constraints: unique `(user_id, budget_month)`; month is the first day; amount is
 
 These are budgeting presets, not individualized financial/investment advice.
 
+### 6.2.1 Input modes and preset identity (Allocation C)
+
+- `allocation_input_mode=PERCENTAGE` accepts percentages. A preset mode must match its exact percentages; custom percentages require `MANUAL`.
+- `allocation_input_mode=AMOUNT` accepts `essentialsAmount`, `safetyAmount`, and `investmentsAmount`. When Investments are enabled, the three amounts must total the income exactly; percentages are derived for display/reporting with `HALF_UP` to two decimals.
+- Preserve the user's selected `allocation_mode` in amount mode. If the user chose `BALANCED` and entered amounts that happen to equal 55/10/35 of income, the saved mode remains `BALANCED`; the backend must not silently rewrite it to `MANUAL`. Likewise, a preset mode is not rejected merely because derived percentages differ from the preset when the input mode is `AMOUNT`.
+- When Investments are disabled, `allocation_mode` must be `MANUAL`; `investmentsPercentage` and `investmentsAmount` are saved as `0.00`; Essentials plus Safety must equal the income exactly.
+- `MonthlyBudgetResponse` always returns both input mode and the saved/derived percentage and amount values.
+
 ### 6.3 Exact allocation validation
 
-- When a preset is selected, backend loads the exact preset percentages. Client-submitted percentages cannot override a preset mode.
-- If the user manually changes any percentage or chooses Manual, persist `allocation_mode=MANUAL`.
+- In `PERCENTAGE` mode, when a preset is selected, backend loads the exact preset percentages. Client-submitted percentages cannot override a preset mode.
+- In `PERCENTAGE` mode, if the user manually changes any percentage or chooses Manual, persist `allocation_mode=MANUAL`.
+- In `AMOUNT` mode, validate the entered rupee amounts instead of forcing preset percentages. Keep the selected preset identity (`CONSERVATIVE`, `BALANCED`, or `AGGRESSIVE`) in `allocation_mode`; use `MANUAL` only when the user chose Manual.
 - When Investments is enabled, the three percentages must sum to exactly `100.00` and each must be within `0.00–100.00`.
 - When Investments is disabled (approved Option C): `allocation_mode=MANUAL`, `investments_percentage=0.00`, and `essentials_percentage + safety_percentage = 100.00`. Ask the user to set Essentials and Safety. Do not auto-redistribute the former investment percentage.
 - When creating/saving a budget with Investments OFF, reject it if the target month already has any POSTED `INVESTMENT` entry, including when the budget is being created for the first time after investment entries were recorded. When switching Investments OFF, reject the change if the target month already has any POSTED `INVESTMENT` entry. Return a clear conflict error and retain the existing budget. Do not delete or rewrite old entries. If there are no posted investment entries, accept the change after validating the two manual percentages.
@@ -151,10 +163,11 @@ One row represents one event, with one amount and one category code. Required fi
 - `note` optional, max 500 characters.
 - `status`: `POSTED` or `VOID`.
 - optional `client_request_id` (UUID/idempotency key) to prevent duplicate submissions on retry.
+- optional `sip_plan_id` and `sip_installment_period` (first day of the installment month). Both are null for ordinary entries and both are set for a paid SIP installment.
 - `voided_at_utc`, `void_reason` nullable.
 - UTC created/updated timestamps.
 
-Index requirements: `(user_id, entry_at_utc)`, `(user_id, entry_type, entry_at_utc)`, `(user_id, bucket, entry_at_utc)`, and a unique `(user_id, client_request_id)` where the nullable/idempotency design permits it.
+Index requirements: `(user_id, entry_at_utc)`, `(user_id, entry_type, entry_at_utc)`, `(user_id, bucket, entry_at_utc)`, and a unique `(user_id, client_request_id)` where the nullable/idempotency design permits it. SIP installments add `(sip_plan_id, sip_installment_period)` and a unique generated `active_sip_installment_key` that is non-null only for POSTED SIP-linked entries, preventing two active payments for the same plan-month while still allowing a voided entry to be replaced.
 
 ### 7.2 Supported entry types and accounting
 
@@ -193,8 +206,10 @@ Backend owns an allow-list and exposes it by API. Angular must submit codes, not
 
 - Essentials: `GROCERIES`, `RENT`, `UTILITIES`, `TRANSPORT`, `FOOD_DINING`, `MEDICAL`, `EDUCATION`, `SHOPPING`, `SUBSCRIPTIONS`, `OTHER_EXPENSE`.
 - Safety: `EMERGENCY_FUND`, `SAFETY_SAVING`, plus approved safety expense categories such as `MEDICAL` and `OTHER_EXPENSE`.
-- Investments: `SIP`, `FD`, `STOCKS`, `GOLD_SIP`, `OTHER_INVESTMENT`.
+- Investments: `SIP`, `MUTUAL_FUND_LUMPSUM`, `STOCKS`, `FD`, `RD`, `PPF`, `GOLD`, `GOLD_SIP`, `OTHER_INVESTMENT`.
 - Credit-card payment: `CREDIT_CARD_BILL_PAYMENT`.
+
+The catalog currently exposes 22 unique codes. `GOLD_SIP` is retained as a legacy supported investment code; the UI should present the eight primary investment options (`SIP`, `MUTUAL_FUND_LUMPSUM`, `STOCKS`, `FD`, `RD`, `PPF`, `GOLD`, `OTHER_INVESTMENT`) plus `GOLD_SIP` only where legacy data or an explicit Gold SIP workflow requires it. Do not create a duplicate new Gold SIP option.
 
 The category response includes the code, user-visible label, allowed entry types and allowed bucket(s). Backend rejects unknown codes or invalid combinations. Category list changes require a code change/release until custom categories are deliberately scoped. Labels may change without changing stored codes. An `EXPENSE` must include a payment method; this is necessary for tracking credit-card purchases without guessing.
 
@@ -205,6 +220,19 @@ The category response includes the code, user-visible label, allowed entry types
 - Void action records timestamp and optional reason; voided records remain queryable in an audit/history view but are excluded from active totals.
 - An entry's `entryDate` must fall in the current IST month or a future month is not allowed for actual activity; actual money entries cannot be future dated. Past-month entries are read-only under the approved period policy.
 - Only `EXPENSE` entries may use `payment_method=CREDIT_CARD`. Do not allow card payments or investment contributions to be submitted as card purchases unless that specific accounting behavior is later designed.
+
+### 7.6 SIP investment plans
+
+SIP plans are tracked in `sip_plans` and use ordinary `money_entries` for paid installments. A SIP installment payment creates one POSTED `INVESTMENT` entry in bucket `INVESTMENTS` with category `SIP`; it is not a separate expense and never implies market value or returns.
+
+- Plan fields: name, monthly amount, installment day (1–31), original start date, tracking start date, optional planned end date, optional actual ended date, and status (`ACTIVE`, `STOPPED`, `COMPLETED`).
+- The first scheduled installment is in the tracking-start month on `min(installmentDay, month length)` unless that date is before the tracking start, in which case it moves to the next month. Later months use the same day clamped to month end.
+- Scheduled installments stop after `min(plannedEndDate, actualEndedDate)` when present. A plan becomes effectively `COMPLETED` after its planned end date even if its stored status has not yet been updated.
+- Installment statuses are `PAID`, `OVERDUE`, `DUE`, or `UPCOMING`, evaluated in `Asia/Kolkata`.
+- Marking an installment paid is idempotent per plan + `YYYY-MM`: the first successful call returns `201`, a replay returns `200` with the existing entry and `idempotentReplay=true`.
+- A payment requires the budget for the payment month to exist and have Investments enabled. The installment period must be part of the plan schedule. Payment date/time cannot be in the future, and payment month cannot be in the past.
+- Start dates cannot change after any installment has been paid. Stopped and completed plans cannot be updated or paid.
+- Full schema, endpoint examples, and error codes are documented in `md_files/SIP_PLANS.md`.
 
 ## 8. Date, time and reporting contract
 
@@ -257,7 +285,19 @@ Use DTOs; never serialize JPA entities directly. `userId` is derived from the au
 
 - `GET /api/v1/budgets/{yyyy-MM}` — return saved monthly budget. If absent, return a documented `BUDGET_NOT_SET` response that Angular renders as an onboarding/setup state.
 - `PUT /api/v1/budgets/{yyyy-MM}` — create/update the current/future month's budget idempotently; past months reject with `409 PERIOD_READ_ONLY`.
-- For a preset request, server sets exact percentages. For manual allocation, server validates totals and investment-toggle rules.
+- For a preset percentage request, server sets exact percentages. For amount mode, server validates rupee totals and preserves the selected preset identity. For manual allocation, server validates totals and investment-toggle rules.
+
+### SIP plans
+
+- `POST /api/v1/sip-plans` — create an ACTIVE SIP plan; returns `201`.
+- `GET /api/v1/sip-plans` — list own plans with `activeMonthlyCommitment`.
+- `GET /api/v1/sip-plans/{id}` — get one own plan.
+- `PUT /api/v1/sip-plans/{id}` — update an active plan; start-date changes are locked after a paid installment.
+- `POST /api/v1/sip-plans/{id}/stop` — stop with optional `stopDate` (default today).
+- `GET /api/v1/sip-plans/installments?fromDate=&toDate=` — list installments across all own plans.
+- `GET /api/v1/sip-plans/{id}/installments?fromDate=&toDate=` — list one plan's installments.
+- `POST /api/v1/sip-plans/{id}/installments/{yyyy-MM}/pay` — record the installment as an investment entry.
+- `GET /api/v1/sip-plans/summary?month=yyyy-MM` — compare active SIP commitment with the month's Investments allocation.
 
 ### Money entries
 
@@ -345,17 +385,24 @@ Keep the codebase simple but layered:
 - `config` — Spring Security, CORS/CSRF, time zone and application configuration.
 - `exception` — domain exceptions + global `@ControllerAdvice` mapping to standard error contract.
 
+Centralized logging, request correlation and the sensitive-data logging policy are documented in `md_files/LOGGING_AND_OBSERVABILITY.md`.
+
 Do not build a generic event framework, generic catalog schema, mapper framework or microservices for this MVP. Use focused methods with unit tests.
 
 ## 15. Database / migration requirements
 
 - Verify actual MySQL server version. Use MySQL 8.0.16 or newer if relying on enforced CHECK constraints; prefer a currently supported MySQL release.
 - Add `org.flywaydb:flyway-mysql` compatible with the Spring Boot-managed Flyway version; MySQL driver support is a separate Flyway dependency in current Flyway releases.
-- Create versioned migration `V1__create_core_budgeting_tables.sql` under `src/main/resources/db/migration/`.
+- Versioned migrations under `src/main/resources/db/migration/`:
+  - `V1__create_core_budgeting_tables.sql` — core tables.
+  - `V2__tighten_money_entry_constraints.sql` — money-entry constraints.
+  - `V3__add_allocation_input_mode_and_amounts.sql` — amount input mode and bucket amounts.
+  - `V4__add_sip_plans_and_amount_preset_identity.sql` — `sip_plans`, SIP links on `money_entries`, and the revised allocation constraint that preserves preset identity in amount mode.
+- `V4` uses `ON DELETE RESTRICT` for `money_entries.sip_plan_id` to avoid MySQL multiple-cascade-path error `1215`; plan deletion is not part of the API.
 - Keep `spring.jpa.hibernate.ddl-auto=none` until entities/migration are set; after mappings exist, prefer `validate` to detect mapping/schema drift. Do not use `create`, `create-drop` or Hibernate auto-update in normal runs. Set the MySQL connection/session timezone to UTC (for example with `spring.datasource.hikari.connection-init-sql=SET time_zone = '+00:00'`, if supported by the selected connector/configuration) because `DATETIME(6)` does not carry timezone metadata. Application timestamps must be converted explicitly to/from UTC.
 - Enable Flyway deliberately only after reviewing the migration and verifying `budget_db` contents. Run first against a disposable empty schema/test database; then run against the intended dev schema after confirmation.
 - Never use `flyway clean` on `budget_db` as a troubleshooting shortcut.
-- Migration must create only the three business tables; index and FK definitions must match this document. Flyway adds `flyway_schema_history` as a technical metadata table.
+- Migrations must create only the approved business tables; index and FK definitions must match this document. Flyway adds `flyway_schema_history` as a technical metadata table.
 - Save SQL and code in Git. Once a versioned migration has been applied/shared, do not rewrite it to change history; add a new forward migration.
 - Do not commit credentials. Use `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` environment variables. Ensure `opencode.json` and local secrets are ignored.
 
@@ -383,6 +430,17 @@ Do not build a generic event framework, generic catalog schema, mapper framework
 - Card purchase counted once as expenditure; bill payment is not another expense.
 - Card payment above current outstanding rejected; opening baseline cannot change after card events.
 - Idempotent retry does not create duplicate entries.
+
+### SIP plan tests
+
+- Schedule clamps installment day to month end and moves a first installment that falls before tracking start to the next month.
+- Planned/actual end dates stop future installments; effective status becomes `COMPLETED` after planned end.
+- Installment statuses `UPCOMING`, `DUE`, `OVERDUE`, `PAID` follow IST dates.
+- Paying a scheduled installment creates one POSTED SIP investment entry and updates the installment to PAID.
+- Retrying the same plan + month is idempotent and does not duplicate the entry; concurrent duplicate insert is recovered as a replay.
+- Unscheduled periods, stopped/completed plans, past payment months, future payment timestamps, missing budgets, and Investments-disabled budgets are rejected.
+- Start dates are locked after a paid installment; stop date cannot be in the future or before tracking start.
+- Commitment summary compares active scheduled plans with the month's Investments allocation.
 
 ### Reporting/security/integration tests
 

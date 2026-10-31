@@ -10,6 +10,7 @@ import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 
 @Entity
 @Table(name = "money_entries",
@@ -68,6 +69,16 @@ public class MoneyEntry {
 
     @Column(name = "client_request_id", columnDefinition = "CHAR(36)")
     private String clientRequestId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "sip_plan_id", foreignKey = @ForeignKey(name = "fk_money_entries_sip_plan"))
+    private SipPlan sipPlan;
+
+    @Column(name = "sip_installment_period")
+    private LocalDate sipInstallmentPeriod;
+
+    @Column(name = "active_sip_installment_key", length = 64, insertable = false, updatable = false)
+    private String activeSipInstallmentKey;
 
     @Column(name = "voided_at_utc")
     private Instant voidedAtUtc;
@@ -171,6 +182,30 @@ public class MoneyEntry {
 
     public void setClientRequestId(String clientRequestId) {
         this.clientRequestId = clientRequestId;
+    }
+
+    public SipPlan getSipPlan() {
+        return sipPlan;
+    }
+
+    public void setSipPlan(SipPlan sipPlan) {
+        this.sipPlan = sipPlan;
+    }
+
+    public LocalDate getSipInstallmentPeriod() {
+        return sipInstallmentPeriod;
+    }
+
+    public void setSipInstallmentPeriod(LocalDate sipInstallmentPeriod) {
+        this.sipInstallmentPeriod = sipInstallmentPeriod;
+    }
+
+    public String getActiveSipInstallmentKey() {
+        return activeSipInstallmentKey;
+    }
+
+    public void setActiveSipInstallmentKey(String activeSipInstallmentKey) {
+        this.activeSipInstallmentKey = activeSipInstallmentKey;
     }
 
     public Instant getVoidedAtUtc() {

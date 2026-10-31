@@ -6,6 +6,6 @@ public class InvestmentToggleBlockedException extends BusinessException {
 
     public InvestmentToggleBlockedException() {
         super(HttpStatus.CONFLICT, "INVESTMENT_TOGGLE_BLOCKED",
-                "Investments cannot be switched off because this month already has posted investment entries.");
+                "Investments cannot be turned off because this month already has posted investment entries.");
     }
 }

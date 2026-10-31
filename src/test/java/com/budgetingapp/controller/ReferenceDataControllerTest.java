@@ -61,7 +61,7 @@ class ReferenceDataControllerTest {
     }
 
     @Test
-    void fullCatalogReturnsEighteenCategoriesWithLabelsAndNoInternalFields() throws Exception {
+    void fullCatalogReturnsTwentyTwoCategoriesWithLabelsAndNoInternalFields() throws Exception {
         MockHttpSession session = login();
 
         MvcResult result = mockMvc.perform(get("/api/v1/reference-data/categories")
@@ -72,7 +72,7 @@ class ReferenceDataControllerTest {
 
         String body = responseBody(result);
         List<String> codes = JsonPath.read(body, "$[*].code");
-        assertEquals(18, codes.size());
+        assertEquals(22, codes.size());
         assertTrue(codes.contains("GROCERIES"));
         assertTrue(codes.contains("CREDIT_CARD_BILL_PAYMENT"));
         List<Object> groceryLabels = JsonPath.read(body, "$[?(@.code == 'GROCERIES')].label");
@@ -96,8 +96,8 @@ class ReferenceDataControllerTest {
                 .andReturn();
 
         List<String> codes = JsonPath.read(responseBody(result), "$[*].code");
-        assertEquals(5, codes.size());
-        assertTrue(codes.containsAll(List.of("SIP", "FD", "STOCKS", "GOLD_SIP", "OTHER_INVESTMENT")));
+        assertEquals(9, codes.size());
+        assertTrue(codes.containsAll(List.of("SIP", "MUTUAL_FUND_LUMPSUM", "STOCKS", "FD", "RD", "PPF", "GOLD", "OTHER_INVESTMENT", "GOLD_SIP")));
         assertFalse(codes.contains("GROCERIES"));
         assertFalse(codes.contains("CREDIT_CARD_BILL_PAYMENT"));
     }

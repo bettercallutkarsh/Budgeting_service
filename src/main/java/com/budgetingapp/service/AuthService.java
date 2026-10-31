@@ -26,12 +26,15 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Locale;
 
 @Service
 public class AuthService {
 
+    private static final Logger log = LoggerFactory.getLogger(AuthService.class);
     private static final String GENERIC_LOGIN_FAILURE_MESSAGE = "Email or password is incorrect.";
 
     private final UserRepository userRepository;
@@ -69,6 +72,7 @@ public class AuthService {
             User refreshed = userRepository.findByUserId(saved.getUserId()).orElseThrow(
                     () -> new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, "USER_SAVE_FAILED",
                             "Unable to complete registration."));
+            log.info("auth.registered");
             return toProfile(refreshed);
         } catch (DataIntegrityViolationException ex) {
             throw duplicateEmailConflict();
@@ -86,6 +90,7 @@ public class AuthService {
                     new UsernamePasswordAuthenticationToken(email, request.getPassword()));
         } catch (BadCredentialsException | DisabledException | UsernameNotFoundException ex) {
             loginRateLimiter.recordFailure(clientIp);
+            log.warn("auth.login_failed");
             throw new BusinessException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS",
                     GENERIC_LOGIN_FAILURE_MESSAGE);
         }
@@ -103,6 +108,7 @@ public class AuthService {
         User user = userRepository.findByUserId(userId).orElseThrow(
                 () -> new BusinessException(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS",
                         GENERIC_LOGIN_FAILURE_MESSAGE));
+        log.info("auth.login_succeeded");
         return toProfile(user);
     }
 

@@ -31,6 +31,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -48,6 +50,7 @@ import java.util.UUID;
 @Service
 public class MoneyEntryService {
 
+    private static final Logger log = LoggerFactory.getLogger(MoneyEntryService.class);
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Kolkata");
     private static final DateTimeFormatter MONTH_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM");
     private static final BigDecimal MAX_AMOUNT = new BigDecimal("999999999999.99");
@@ -104,6 +107,8 @@ public class MoneyEntryService {
                     Optional<MoneyEntry> existing =
                             moneyEntryRepository.findByUser_UserIdAndClientRequestId(userId, clientRequestId);
                     if (existing.isPresent()) {
+                        log.info("money_entry.idempotent_replay entryType={} moneyEntryId={}",
+                                entryType, existing.get().getMoneyEntryId());
                         return idempotentResponse(existing.get(), entryAtUtc, entryType, bucket,
                                 categoryCode, amount, paymentMethod, note);
                     }
@@ -122,6 +127,8 @@ public class MoneyEntryService {
                 entry.setClientRequestId(clientRequestId);
                 MoneyEntry saved = moneyEntryRepository.saveAndFlush(entry);
                 MoneyEntry fresh = moneyEntryRepository.findById(saved.getMoneyEntryId()).orElse(saved);
+                log.info("money_entry.created entryType={} moneyEntryId={} status={}",
+                        entryType, fresh.getMoneyEntryId(), fresh.getStatus());
                 return toResponse(fresh);
             });
         } catch (DataIntegrityViolationException ex) {
@@ -147,6 +154,7 @@ public class MoneyEntryService {
             entry.setVoidReason(voidReason);
             MoneyEntry saved = moneyEntryRepository.saveAndFlush(entry);
             MoneyEntry fresh = moneyEntryRepository.findById(saved.getMoneyEntryId()).orElse(saved);
+            log.info("money_entry.voided moneyEntryId={}", fresh.getMoneyEntryId());
             return toResponse(fresh);
         });
     }
@@ -236,6 +244,7 @@ public class MoneyEntryService {
             user.setOpeningCreditCardOutstandingAmount(opening);
             user.setCreditCardTrackingStartedAtUtc(requestedStart != null ? requestedStart : clock.instant());
             userRepository.saveAndFlush(user);
+            log.info("credit_card.opening_baseline_updated");
             Instant trackingStart = user.getCreditCardTrackingStartedAtUtc();
             return buildSummary(user,
                     moneyEntryRepository.sumAmountByUser_UserIdAndEntryTypeAndPaymentMethodAndStatusAndEntryAtUtcGreaterThanEqual(
@@ -295,7 +304,8 @@ public class MoneyEntryService {
                                     + " before recording investments."));
             if (!Boolean.TRUE.equals(budget.getInvestmentsEnabled())) {
                 throw new BusinessException(HttpStatus.CONFLICT, "INVESTMENTS_DISABLED",
-                        "Investments are disabled in the budget for " + entryMonth.format(MONTH_FORMAT) + ".");
+                        "Investments are disabled in the budget for " + entryMonth.format(MONTH_FORMAT)
+                                + ". Turn Investments on in the budget to record investment entries.");
             }
         }
         boolean creditCardPurchase = entryType == EntryType.EXPENSE && paymentMethod == PaymentMethod.CREDIT_CARD;
@@ -547,6 +557,8 @@ public class MoneyEntryService {
         response.setNote(entry.getNote());
         response.setStatus(entry.getStatus());
         response.setClientRequestId(entry.getClientRequestId());
+        response.setSipPlanId(entry.getSipPlan() != null ? entry.getSipPlan().getSipPlanId() : null);
+        response.setSipInstallmentPeriod(entry.getSipInstallmentPeriod());
         response.setVoidedAtUtc(entry.getVoidedAtUtc());
         response.setVoidReason(entry.getVoidReason());
         response.setCreatedAtUtc(entry.getCreatedAtUtc());

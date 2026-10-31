@@ -42,6 +42,18 @@ public interface MoneyEntryRepository extends JpaRepository<MoneyEntry, Long>, J
 
     Optional<MoneyEntry> findByUser_UserIdAndClientRequestId(Long userId, String clientRequestId);
 
+    Optional<MoneyEntry> findByUser_UserIdAndSipPlan_SipPlanIdAndSipInstallmentPeriodAndStatus(
+            Long userId, Long sipPlanId, java.time.LocalDate sipInstallmentPeriod, EntryStatus status);
+
+    boolean existsBySipPlan_SipPlanIdAndStatus(Long sipPlanId, EntryStatus status);
+
+    List<MoneyEntry> findByUser_UserIdAndSipPlanIsNotNullAndStatusAndSipInstallmentPeriodBetween(
+            Long userId, EntryStatus status, java.time.LocalDate startPeriod, java.time.LocalDate endPeriod);
+
+    List<MoneyEntry> findByUser_UserIdAndSipPlan_SipPlanIdAndStatusAndSipInstallmentPeriodBetween(
+            Long userId, Long sipPlanId, EntryStatus status,
+            java.time.LocalDate startPeriod, java.time.LocalDate endPeriod);
+
     boolean existsByUser_UserIdAndEntryTypeAndPaymentMethodAndStatusAndEntryAtUtcGreaterThanEqual(
             Long userId, EntryType entryType, PaymentMethod paymentMethod, EntryStatus status, Instant startUtc);
 

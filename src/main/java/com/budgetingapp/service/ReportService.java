@@ -4,6 +4,7 @@ import com.budgetingapp.dto.response.MonthlySummaryResponse;
 import com.budgetingapp.dto.response.ReportPeriodResponse;
 import com.budgetingapp.dto.response.ReportSummaryResponse;
 import com.budgetingapp.entity.MonthlyBudget;
+import com.budgetingapp.entity.enums.AllocationInputMode;
 import com.budgetingapp.entity.enums.EntryType;
 import com.budgetingapp.exception.BusinessException;
 import com.budgetingapp.repository.MoneyEntryRepository;
@@ -12,6 +13,8 @@ import com.budgetingapp.repository.MonthlyBudgetRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -31,6 +34,7 @@ import java.util.TreeMap;
 @Service
 public class ReportService {
 
+    private static final Logger log = LoggerFactory.getLogger(ReportService.class);
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Kolkata");
     private static final DateTimeFormatter MONTH_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM");
     private static final Set<String> GROUP_BY_VALUES = Set.of("DAY", "MONTH", "QUARTER", "HALF_YEAR", "YEAR");
@@ -63,6 +67,7 @@ public class ReportService {
 
     @Transactional(readOnly = true)
     public MonthlySummaryResponse monthlySummary(Long userId, YearMonth month) {
+        log.debug("report.monthly_summary month={}", month.format(MONTH_FORMAT));
         UtcRange range = toUtcRange(month.atDay(1), month.atEndOfMonth());
         List<PostedEntryDayTotal> dayTotals = moneyEntryRepository.sumPostedTotalsByIstDay(
                 userId, range.startUtc(), range.endExclusiveUtc());
@@ -86,10 +91,7 @@ public class ReportService {
             response.setExplanation(NO_BUDGET_EXPLANATION);
             return response;
         }
-        AllocationCalculator.Percentages percentages = new AllocationCalculator.Percentages(
-                budget.getEssentialsPercentage(), budget.getSafetyPercentage(), budget.getInvestmentsPercentage());
-        AllocationCalculator.Amounts amounts = allocationCalculator.calculate(
-                budget.getIncomeAmount(), percentages, budget.getInvestmentsEnabled());
+        AllocationCalculator.Amounts amounts = allocationAmounts(budget);
         response.setIncomeAmount(budget.getIncomeAmount().setScale(2));
         response.setAllocationMode(budget.getAllocationMode());
         response.setInvestmentsEnabled(budget.getInvestmentsEnabled());
@@ -118,6 +120,24 @@ public class ReportService {
         return response;
     }
 
+    private AllocationCalculator.Amounts allocationAmounts(MonthlyBudget budget) {
+        if (budget.getEssentialsAmount() != null
+                && budget.getSafetyAmount() != null
+                && budget.getInvestmentsAmount() != null) {
+            return new AllocationCalculator.Amounts(
+                    budget.getEssentialsAmount().setScale(2),
+                    budget.getSafetyAmount().setScale(2),
+                    budget.getInvestmentsAmount().setScale(2));
+        }
+        if (budget.getAllocationInputMode() == AllocationInputMode.AMOUNT) {
+            throw new IllegalStateException("Amount-mode budgets must have persisted allocation amounts.");
+        }
+        AllocationCalculator.Percentages percentages = new AllocationCalculator.Percentages(
+                budget.getEssentialsPercentage(), budget.getSafetyPercentage(), budget.getInvestmentsPercentage());
+        return allocationCalculator.calculate(
+                budget.getIncomeAmount(), percentages, budget.getInvestmentsEnabled());
+    }
+
     @Transactional(readOnly = true)
     public ReportSummaryResponse summary(Long userId, LocalDate fromDate, LocalDate toDate, String groupBy) {
         LocalDate effectiveFrom = requireDate(fromDate, "fromDate");
@@ -128,6 +148,8 @@ public class ReportService {
         }
         String effectiveGroupBy = requireGroupBy(groupBy);
 
+        log.debug("report.summary fromDate={} toDate={} groupBy={}",
+                effectiveFrom, effectiveTo, effectiveGroupBy);
         UtcRange range = toUtcRange(effectiveFrom, effectiveTo);
         List<PostedEntryDayTotal> dayTotals = moneyEntryRepository.sumPostedTotalsByIstDay(
                 userId, range.startUtc(), range.endExclusiveUtc());
